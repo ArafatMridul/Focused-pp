@@ -7,11 +7,12 @@ export default defineConfig({
         name: "WXT + React",
         version: "1.0.0",
         description: "WXT + React",
-        permissions: ["storage", "tabs", "activeTab"],
-        host_permissions: ["<all_urls>"],
+        permissions: ["tabs", "activeTab", "scripting", "storage"],
+        host_permissions: ["*://*.youtube.com/*", "<all_urls>"],
         background: {
             service_worker: "entrypoints/background.ts",
             type: "module",
         },
+        manifestVersion: 3,
     },
 });
