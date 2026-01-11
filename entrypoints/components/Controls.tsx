@@ -1,63 +1,48 @@
-import { Pause, Play, RotateCcw } from "lucide-react";
+import React from "react";
+import { Play, RotateCcw, AlertTriangle } from "lucide-react";
 
-type ControlsProps = {
-    setIsRunning: React.Dispatch<React.SetStateAction<boolean>>;
-    setTimeLeft: React.Dispatch<React.SetStateAction<number>>;
+interface ControlsProps {
+    isRunning: boolean;
+    startTimer: () => void;
+    stopTimer: () => void;
+    resetTimer: () => void;
+    setIsRunning: (running: boolean) => void;
+    setTimeLeft: (time: number) => void;
     settings: {
         minutes: number;
         seconds: number;
-        newTabUrl: string;
     };
-    isRunning: boolean;
-    startTimer: () => void; // Add this prop
-};
+}
 
-const Controls = ({
-    setIsRunning,
-    setTimeLeft,
-    settings,
+function Controls({
     isRunning,
-    startTimer, // Receive it here
-}: ControlsProps) => {
-    const pauseTimer = () => {
-        setIsRunning(false);
-    };
-
-    const resetTimer = () => {
-        setIsRunning(false);
-        const totalSeconds = settings.minutes * 60 + settings.seconds;
-        setTimeLeft(totalSeconds);
-    };
-
+    startTimer,
+    stopTimer,
+    resetTimer,
+}: ControlsProps) {
     return (
         <div className="flex justify-center space-x-4 mb-8">
             {!isRunning ? (
                 <button
-                    onClick={startTimer} // Use the prop here
-                    className="flex items-center justify-center bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-full font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
+                    onClick={startTimer}
+                    className="flex items-center justify-center bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 transform hover:scale-105"
                 >
-                    <Play className="w-5 h-5 mr-2" />
-                    Start
+                    <Play size={20} className="mr-2" />
+                    Start Timer
                 </button>
             ) : (
-                <button
-                    onClick={pauseTimer}
-                    className="flex items-center justify-center bg-yellow-600 hover:bg-yellow-700 text-white px-6 py-3 rounded-full font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
-                >
-                    <Pause className="w-5 h-5 mr-2" />
-                    Pause
-                </button>
+                <>
+                    <button
+                        onClick={stopTimer}
+                        className="flex items-center justify-center bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 transform hover:scale-105"
+                    >
+                        <AlertTriangle size={20} className="mr-2" />
+                        Stop Timer
+                    </button>
+                </>
             )}
-
-            <button
-                onClick={resetTimer}
-                className="flex items-center justify-center bg-gray-700 hover:bg-gray-600 text-white px-6 py-3 rounded-full font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
-            >
-                <RotateCcw className="w-5 h-5 mr-2" />
-                Reset
-            </button>
         </div>
     );
-};
+}
 
 export default Controls;
