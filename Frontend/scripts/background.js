@@ -11,7 +11,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const myHeaders = new Headers();
     myHeaders.append(
       "x-goog-api-key",
-      "AIzaSyCXV_pITGHF99LgpIaNzbcclPq2B0loQC4"
+      "======="
     );
     myHeaders.append("Content-Type", "application/json");
 
