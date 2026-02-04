@@ -1,158 +1,241 @@
 console.log("Content script loaded..............");
-function getYouTubeVideoTitle() {
-  const metaTitle = document.querySelector('meta[name="title"]');
-  return metaTitle ? metaTitle.content : null;
-}
-const videoTitle = getYouTubeVideoTitle();
-console.log("YouTube Video Title:", videoTitle);
 
-const channelName = document.querySelector("ytd-channel-name a")?.innerText;
-
-console.log(channelName);
-
-//===============================
-
-// Function to get all video titles from suggested videos
-
-console.log("Content script loaded, waiting for videos...");
-
-//================================================
-
-// This message confirms the script is running
-console.log("Script started...");
-
-function getVideoTitles() {
-  var titleElements = document.querySelectorAll(
-    "a.yt-lockup-metadata-view-model__title span"
-  );
-
-  var titles = [];
-
-  for (var i = 0; i < titleElements.length; i++) {
-    titles.push(titleElements[i].innerText);
-  }
-
-  return titles;
-}
-
-var collectedTitles = [];
-var skipvideoarr = [];
-
-
-
-
-
-///===========================================
-//blur the thumbnail
-//==========================================
-
-const blurobserver =() => {
-  var thumbnail=document.querySelectorAll(".ytThumbnailViewModelImage img")
-
-  for(var k=0;k<thumbnail.length;k++){
-    if (!skipvideoarr.includes(k)) {
-      console.log("i = ",k);
-    // Replace thumbnail image
-    var img = thumbnail[k];
-    img.src = chrome.runtime.getURL("images/stop.jpg");
-    }
-  }
+const videoData = {
+    currentlyPlaying: { title: "" },
+    recommendedVideos: []
 };
 
-//=====================================================
+let collectedTitles = new Set(); // Use Set to automatically handle duplicates
+let skipvideoarr = [];
+let hasSentData = false;
 
-var observer = new MutationObserver(function () {
-  var newTitles = getVideoTitles();
+// Get current video title
+function getYouTubeVideoTitle() {
+    const metaTitle =
+        document.querySelector('meta[name="title"]') ||
+        document.querySelector('meta[property="og:title"]');
+    const title = metaTitle ? metaTitle.content : document.title || null;
+    console.log("Video title found:", title);
+    return title;
+}
 
-  for (var i = 0; i < newTitles.length; i++) {
-    if (collectedTitles.length >= 20) {
-      console.log("Collected 20 videos. Stopping observer.");
-      observer.disconnect();
-      console.log("Final titles:", collectedTitles);
+// Get channel name (optional, for future use)
+function getChannelName() {
+    const channelName =
+        document.querySelector("ytd-channel-name a")?.innerText ||
+        document.querySelector("#channel-name a")?.innerText ||
+        null;
+    console.log("Channel name found:", channelName);
+    return channelName;
+}
 
-      chrome.runtime.sendMessage(
-        {
-          // passing msg to background.js
-          type: "VIDEO_TITLES",
-          title: videoTitle,
-          data: collectedTitles,
-        },
-        (response) => {
-          console.log("Response in content:", response.result);
-          skipvideoarr = JSON.parse(response.result);
-          console.log("this is the array : ",skipvideoarr)
+// Get suggested video titles with deduplication
+function getVideoTitles() {
+    const titlesMap = new Map(); // Use Map to track unique titles by element
+    
+    // Try multiple selectors for better compatibility
+    const selectors = [
+        "a#video-title",
+        "a.yt-lockup-metadata-view-model__title span",
+        "yt-formatted-string#video-title"
+    ];
+    
+    selectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach((el) => {
+            const text = el.innerText?.trim();
+            if (text && text.length > 0) {
+                // Use element reference as key to avoid duplicates from same element
+                titlesMap.set(text, true);
+            }
+        });
+    });
+    
+    const uniqueTitles = Array.from(titlesMap.keys());
+    console.log("Found", uniqueTitles.length, "unique video titles");
+    return uniqueTitles;
+}
 
-          blurobserver();
-          // .observe(document.body, {
-          //   childList: true,
-          //   subtree: true,
-          // });
+// Send data to backend at localhost:4000/chat
+async function sendToBackend() {
+    if (hasSentData) {
+        console.log("Data already sent, skipping...");
+        return;
+    }
+    
+    const videoTitle = getYouTubeVideoTitle();
+    
+    console.log("=== Preparing to send data ===");
+    console.log("Current video:", videoTitle);
+    console.log("Collected unique titles:", collectedTitles.size);
+    
+    if (!videoTitle) {
+        console.warn("❌ Missing video title - aborting send");
+        return;
+    }
+    
+    if (collectedTitles.size === 0) {
+        console.warn("❌ No recommended videos collected - aborting send");
+        return;
+    }
+    
+    // Convert Set to Array and prepare data
+    const uniqueTitlesArray = Array.from(collectedTitles);
+    
+    videoData.currentlyPlaying = { title: videoTitle };
+    videoData.recommendedVideos = uniqueTitlesArray
+        .slice(0, 20)
+        .map(title => ({ title }));
+    
+    console.log("✅ Sending to backend:", videoData);
+    console.log("Unique videos count:", videoData.recommendedVideos.length);
+    
+    try {
+        const response = await fetch("http://localhost:4000/chat", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(videoData),
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
-      );
-
-      return;
+        
+        const result = await response.json();
+        console.log("✅ Backend response:", result);
+        
+        // Store which videos to skip
+        if (result && Array.isArray(result)) {
+            skipvideoarr = result;
+            console.log("Videos to skip:", skipvideoarr);
+            blurThumbnails();
+        }
+        
+        hasSentData = true;
+        
+    } catch (error) {
+        console.error("❌ Error sending to backend:", error);
+        
+        // Fallback: try via background script if direct fetch fails (CORS)
+        console.log("Trying via background script...");
+        chrome.runtime.sendMessage(
+            {
+                type: "SEND_VIDEO_DATA",
+                data: videoData,
+            },
+            (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error("❌ Chrome runtime error:", chrome.runtime.lastError.message);
+                    return;
+                }
+                
+                if (response && response.ok) {
+                    console.log("✅ Response via background:", response.data);
+                    if (response.data && Array.isArray(response.data)) {
+                        skipvideoarr = response.data;
+                        blurThumbnails();
+                    }
+                    hasSentData = true;
+                } else {
+                    console.error("❌ Error via background:", response?.error);
+                }
+            }
+        );
     }
+}
 
-    if (!collectedTitles.includes(newTitles[i])) {
-      collectedTitles.push(newTitles[i]);
+// Blur thumbnails for videos to skip
+function blurThumbnails() {
+    console.log("Blurring thumbnails...");
+    
+    const thumbnails = document.querySelectorAll(".ytThumbnailViewModelImage img");
+    
+    for (let i = 0; i < thumbnails.length; i++) {
+        if (!skipvideoarr.includes(i)) {
+            console.log("Blurring thumbnail:", i);
+            const img = thumbnails[i];
+            img.src = chrome.runtime.getURL("images/stop.jpg");
+        }
     }
-  }
+}
 
-  console.log("Collected so far:", collectedTitles.length);
+// Collect titles and add to Set (automatic deduplication)
+function collectTitles() {
+    const newTitles = getVideoTitles();
+    const previousSize = collectedTitles.size;
+    
+    newTitles.forEach(title => {
+        collectedTitles.add(title); // Set automatically prevents duplicates
+    });
+    
+    const addedCount = collectedTitles.size - previousSize;
+    if (addedCount > 0) {
+        console.log(`Added ${addedCount} new unique titles. Total: ${collectedTitles.size}`);
+    }
+    
+    return collectedTitles.size;
+}
+
+// Initialize: collect titles already on page
+function initialize() {
+    console.log("=== YouTube Monitor Initialized ===");
+    
+    setTimeout(() => {
+        const count = collectTitles();
+        console.log("Initial titles collected:", count);
+        
+        if (count >= 20) {
+            console.log("Already have 20+ titles, sending now");
+            observer.disconnect();
+            sendToBackend();
+        }
+    }, 2000);
+}
+
+// Observe mutations to collect titles dynamically
+const observer = new MutationObserver(() => {
+    const count = collectTitles();
+    
+    if (count >= 20 && !hasSentData) {
+        console.log("✅ Collected 20+ unique videos. Stopping observer.");
+        observer.disconnect();
+        sendToBackend();
+    }
 });
 
-observer.observe(document.body, {
-  childList: true,
-  subtree: true,
-});
+// Start observing
+if (document.body) {
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+    });
+    initialize();
+} else {
+    document.addEventListener("DOMContentLoaded", () => {
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+        });
+        initialize();
+    });
+}
 
-//changing the href in the attribute tag
-// const observer2 = new MutationObserver(() => {
-//   document.querySelectorAll(
-//     'a.yt-lockup-metadata-view-model__title'
-//   ).forEach(anchor => {
-
-//     // Change visible title
-//     const span = anchor.querySelector('span');
-//     if (span && span.innerText !== "") {
-//       span.innerText = "";
-//     }
-
-//     // Change link
-//     if (anchor.href !== "") {
-//       anchor.href = "";
-//     }
-
-//   });
-// });
-
-// observer2.observe(document.body, {
-//   childList: true,
-//   subtree: true
-// });
-
-//changing the title of the suggested videos to "Not available"
-// const observer3 = new MutationObserver(() => {
-//   document.querySelectorAll(
-//     'a.yt-lockup-metadata-view-model__title span'
-//   ).forEach(span => {
-//     if (span.innerText !== "Not available") {
-//       span.innerText = "Not available";
-//     }
-//   });
-// });
-
-// observer3.observe(document.body, {
-//   childList: true,
-//   subtree: true
-// });
-
-//blur the images of the suggested videos
-
-//<img
-// alt=""
-// class="ytCoreImageHost ytCoreImageFillParentHeight ytCoreImageFillParentWidth ytCoreImageContentModeScaleAspectFill ytCoreImageLoaded"
-//src="https://i.ytimg.com/vi/ZEKiIwWv9nM/hqdefault.jpg?sqp=-oaymwEnCNACELwBSFryq4qpAxkIARUAAIhCGAHYAQHiAQoIGBACGAY4AUAB&amp;rs=AOn4CLBttmv67EVjGOQNujQdudyuWN5yPw"
-//></img>;
-
-
+// Fallback timeout
+setTimeout(() => {
+    console.log("=== Timeout reached after 8 seconds ===");
+    observer.disconnect();
+    
+    // Final collection attempt
+    const finalCount = collectTitles();
+    
+    console.log("Final collected unique titles:", finalCount);
+    
+    if (finalCount > 0 && !hasSentData) {
+        sendToBackend();
+    } else if (hasSentData) {
+        console.log("✅ Data already sent");
+    } else {
+        console.warn("⚠️ No titles collected");
+    }
+}, 8000);

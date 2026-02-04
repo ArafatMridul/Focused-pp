@@ -1,33 +1,33 @@
-let reply = "";
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "VIDEO_TITLES") {
-    console.log("Received single title:", message.title);
-    console.log("Received all titles:", message.data);
-  }
+console.log("Background script loaded");
+
+// Listen for messages from content script
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.type === "SEND_VIDEO_DATA") {
+        console.log("Background: Received video data request");
+        console.log("Data:", request.data);
+
+        fetch("http://localhost:4000/chat", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(request.data),
+        })
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then((data) => {
+                console.log("Background: Backend responded:", data);
+                sendResponse({ ok: true, data: data });
+            })
+            .catch((error) => {
+                console.error("Background: Error calling backend:", error);
+                sendResponse({ ok: false, error: error.message });
+            });
+
+        return true; // Keep message channel open for async response
+    }
 });
-
-// `You are analyzing YouTube video title similarity.
-
-// Main video title: "${mainTitle}"
-
-// Suggested video titles:
-// ${suggestedTitles}
-
-// Task:
-// Return ONLY a JSON array of indices (numbers) for suggested titles that are semantically similar to the main title.
-
-// Criteria for similarity:
-// - Same topic or subject matter
-// - Same technology/tools discussed
-// - Same problem being solved
-// - Similar use case or application
-
-// Ignore titles that are:
-// - Different topics
-// - Tangentially related
-// - Generic recommendations
-
-// Response format (valid JSON array only):
-// [0, 5, 12]
-
-// Your response:`,
